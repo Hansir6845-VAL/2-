@@ -7,8 +7,11 @@ import {
   operatorNames,
 } from "./player/operatorModels.js";
 import { buildVisualMapVariant } from "./maps/visualVariants.js";
+import { createSpecialFlyovers } from "./vehicles/specialFlyovers.js";
 
 // Core scene and input
+const mat = (color, roughness = 0.8, metalness = 0) =>
+  new THREE.MeshStandardMaterial({ color, roughness, metalness });
 const app = document.querySelector("#app");
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x91a29b);
@@ -36,9 +39,8 @@ controls.pointerSpeed = 0.72;
 // Pointer lock is blocked by some embedded browsers. Keep the game playable there
 // with captured mouse movement while preserving PointerLockControls on desktop.
 let gameStarted = false,
-  dragLook = false,
-  lastPointerX = 0,
-  lastPointerY = 0;
+  lastPointerX = innerWidth / 2,
+  lastPointerY = innerHeight / 2;
 function startGame() {
   if (gameStarted) return;
   gameStarted = true;
@@ -50,6 +52,7 @@ function gameActive() {
 }
 function requestPointerLock() {
   startGame();
+  if (controls.isLocked) return;
   try {
     const result = controls.lock();
     if (result && typeof result.catch === "function")
@@ -63,15 +66,21 @@ function requestPointerLock() {
   }
 }
 controls.addEventListener("lock", startGame);
+document.addEventListener("pointerlockerror", () => {
+  notify("鼠标锁定失败　·　自由视角已启用");
+});
 controls.addEventListener("unlock", () => {
   if (!gameStarted) return;
   document.querySelector("#start").style.display = "none";
   document.body.classList.remove("aim");
   aim = false;
-  dragLook = false;
 });
 document.addEventListener("mousemove", (e) => {
-  if (controls.isLocked || !dragLook) return;
+  if (controls.isLocked || !gameStarted) {
+    lastPointerX = e.clientX;
+    lastPointerY = e.clientY;
+    return;
+  }
   const dx = e.clientX - lastPointerX,
     dy = e.clientY - lastPointerY;
   lastPointerX = e.clientX;
@@ -93,49 +102,35 @@ const vmMat = (c, r = 0.45, m = 0.55) =>
   new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
 const carbon = vmMat(0x1c292b),
   alloy = vmMat(0x46595a),
-  polymer = vmMat(0x121c1d, 0.75, 0.1),
-  teal = vmMat(0x50cbb5, 0.32, 0.2),
-  glove = vmMat(0x273e3b, 0.85, 0.05),
-  sleeve = vmMat(0xc0c2ad, 0.8, 0.05);
-function vmBox(x, y, z, sx, sy, sz, m) {
-  const o = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m);
-  o.position.set(x, y, z);
-  viewmodel.add(o);
-  return o;
-}
-function vmRound(x, y, z, r, h, m) {
-  const o = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 16), m);
-  o.rotation.x = Math.PI / 2;
-  o.position.set(x, y, z);
-  viewmodel.add(o);
-  return o;
-}
-// Detailed VX-9 first-person receiver, handguard, optic, rails, magazine, stock and gloved arms.
-vmBox(0, 0, 0, 0.14, 0.13, 0.46, alloy);
-vmBox(0, 0.02, -0.19, 0.2, 0.16, 0.23, carbon);
-vmBox(0, -0.035, 0.34, 0.065, 0.065, 0.37, alloy);
-const primaryMagazineMesh = vmBox(0, -0.12, -0.08, 0.105, 0.26, 0.13, polymer);
-vmBox(0, 0.11, -0.06, 0.075, 0.075, 0.12, teal);
-vmBox(0, 0.13, -0.24, 0.19, 0.045, 0.22, carbon);
-vmBox(0, 0.08, 0.12, 0.11, 0.05, 0.25, carbon);
-vmBox(0, 0.145, 0.08, 0.17, 0.025, 0.04, alloy);
-vmBox(0, 0.2, -0.08, 0.07, 0.08, 0.17, carbon);
-vmBox(0, 0.245, -0.08, 0.035, 0.04, 0.13, teal);
-vmRound(0, 0.265, -0.08, 0.065, 0.018, carbon);
-for (const x of [-0.085, 0.085])
-  for (let z = -0.3; z <= 0.24; z += 0.12)
-    vmBox(x, 0.03, z, 0.018, 0.02, 0.025, alloy);
+  polymer = vmMat(0x121c1d, 0.75, 0.1);
+// Each weapon is built in its own viewmodel group to preserve its reference proportions.
 slots.secondary = new THREE.Group();
 slots.secondary.visible = false;
 viewmodel.add(slots.secondary);
+slots.secondary.scale.setScalar(0.82);
+slots.secondary.position.set(0.12, -0.02, -0.12);
+slots.secondary.rotation.y = 0.34;
 slots.melee = new THREE.Group();
 slots.melee.visible = false;
 viewmodel.add(slots.melee);
+slots.melee.scale.setScalar(0.36);
+slots.melee.position.set(0.1, -0.005, 0);
+// Keep the blade face visible, raise its point, and cant the cutting edge forward.
+slots.melee.rotation.set(0, -0.4, -1.13);
 slots.primary = new THREE.Group();
 viewmodel.add(slots.primary);
 for (const o of [...viewmodel.children])
   if (o !== slots.primary && o !== slots.secondary && o !== slots.melee)
     slots.primary.add(o);
+for (const child of [...slots.primary.children]) slots.primary.remove(child);
+const primaryMagazineMesh = new THREE.Mesh(
+  new THREE.BoxGeometry(0.1, 0.25, 0.12),
+  polymer,
+);
+primaryMagazineMesh.position.set(0, -0.14, 0.08);
+slots.primary.add(primaryMagazineMesh);
+slots.primary.scale.setScalar(0.5);
+slots.primary.position.set(0.06, -0.055, -0.015);
 const primaryBolt = new THREE.Group();
 const primaryBoltBody = new THREE.Mesh(
   new THREE.BoxGeometry(0.075, 0.027, 0.12),
@@ -153,18 +148,21 @@ slots.primary.add(primaryBolt);
 const primaryBoltBaseZ = primaryBolt.position.z;
 // Gold-and-black assault rifle with a suppressor, carry handle, extended magazine,
 // and a small blue crystal energy shroud inspired by the supplied weapon reference.
-const rifleGold = vmMat(0xc59a38, 0.28, 0.78),
-  rifleGoldLight = vmMat(0xf0ce68, 0.24, 0.72),
-  rifleBlack = vmMat(0x15191b, 0.48, 0.46),
-  rifleBlue = vmMat(0x147ea1, 0.3, 0.52),
+const rifleGold = vmMat(0x181523, 0.3, 0.78),
+  rifleGoldLight = vmMat(0xd8b75e, 0.25, 0.75),
+  rifleBlack = vmMat(0x090b13, 0.34, 0.68),
+  rifleBlue = vmMat(0x8d1526, 0.28, 0.62),
   rifleCrystal = new THREE.MeshStandardMaterial({
-    color: 0x8eeeff,
-    emissive: 0x19a9ff,
-    emissiveIntensity: 1.8,
-    metalness: 0.28,
-    roughness: 0.18,
+    color: 0xe13939,
+    emissive: 0x771021,
+    emissiveIntensity: 0.8,
+    metalness: 0.42,
+    roughness: 0.24,
   });
-function riflePart(
+const rifleAxis = new THREE.Group();
+rifleAxis.rotation.y = 0.34;
+slots.primary.add(rifleAxis);
+const riflePart = (
   parent,
   geometry,
   material,
@@ -174,7 +172,7 @@ function riflePart(
   rx = 0,
   ry = 0,
   rz = 0,
-) {
+) => {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(x, y, z);
   mesh.rotation.set(rx, ry, rz);
@@ -182,123 +180,193 @@ function riflePart(
   mesh.receiveShadow = true;
   parent.add(mesh);
   return mesh;
-}
-riflePart(
-  slots.primary,
-  new THREE.BoxGeometry(0.22, 0.15, 0.38),
-  rifleGold,
+};
+const rifleBarrel = riflePart(
+  rifleAxis,
+  new THREE.CylinderGeometry(0.026, 0.032, 1.02, 16),
+  rifleBlack,
   0,
-  0.015,
-  -0.035,
+  0,
+  -0.18,
+  Math.PI / 2,
+);
+for (const [y, r, h, material] of [
+  [0.004, 0.041, 0.22, rifleGoldLight],
+  [0.006, 0.046, 0.018, rifleGold],
+  [0.002, 0.03, 0.5, rifleBlack],
+])
+  riflePart(
+    rifleAxis,
+    new THREE.CylinderGeometry(r, r, h, 16),
+    material,
+    0,
+    y,
+    -0.68,
+    Math.PI / 2,
+  );
+const primaryMuzzle = new THREE.Object3D();
+primaryMuzzle.position.set(0, 0, -0.79);
+rifleAxis.add(primaryMuzzle);
+// Tapered receiver and sculpted, swept armor panels create the long dragon rifle silhouette.
+riflePart(
+  rifleAxis,
+  new THREE.BoxGeometry(0.12, 0.13, 0.46),
+  rifleBlack,
+  0,
+  0.01,
+  0.18,
 );
 riflePart(
-  slots.primary,
-  new THREE.BoxGeometry(0.205, 0.045, 0.31),
-  rifleBlack,
+  rifleAxis,
+  new THREE.BoxGeometry(0.14, 0.09, 0.34),
+  rifleGold,
+  0,
+  0.05,
+  0.12,
+);
+riflePart(
+  rifleAxis,
+  new THREE.BoxGeometry(0.14, 0.025, 0.26),
+  rifleBlue,
   0,
   0.105,
-  -0.045,
+  0.12,
 );
 riflePart(
-  slots.primary,
-  new THREE.BoxGeometry(0.205, 0.035, 0.25),
-  rifleGoldLight,
-  0,
-  0.14,
-  -0.07,
-);
-riflePart(
-  slots.primary,
-  new THREE.BoxGeometry(0.19, 0.16, 0.26),
-  rifleBlue,
-  0,
-  -0.015,
-  -0.24,
-);
-// Upper carry handle, rear stock and angled pistol grip give the silhouette a clear AR profile.
-riflePart(
-  slots.primary,
-  new THREE.BoxGeometry(0.22, 0.035, 0.23),
-  rifleGold,
-  0,
-  0.235,
-  -0.055,
-);
-for (const side of [-1, 1])
-  riflePart(
-    slots.primary,
-    new THREE.BoxGeometry(0.035, 0.13, 0.045),
-    rifleGold,
-    side * 0.09,
-    0.185,
-    -0.055,
-  );
-riflePart(
-  slots.primary,
-  new THREE.BoxGeometry(0.17, 0.12, 0.3),
+  rifleAxis,
+  new THREE.BoxGeometry(0.12, 0.2, 0.18),
   rifleBlack,
   0,
-  0.015,
-  0.28,
+  -0.15,
+  0.2,
+  0,
+  0,
+  -0.12,
 );
 riflePart(
-  slots.primary,
-  new THREE.BoxGeometry(0.15, 0.08, 0.2),
-  rifleGold,
-  0,
-  0.02,
-  0.4,
-);
-riflePart(
-  slots.primary,
-  new THREE.BoxGeometry(0.105, 0.2, 0.12),
-  rifleBlue,
-  0.02,
-  -0.16,
-  -0.01,
-  0,
-  0,
-  -0.16,
-);
-// Suppressor and front rail.
-const rifleBarrel = riflePart(
-  slots.primary,
-  new THREE.CylinderGeometry(0.027, 0.027, 0.48, 16),
+  rifleAxis,
+  new THREE.BoxGeometry(0.12, 0.08, 0.34),
   rifleBlack,
   0,
-  0.015,
-  -0.48,
-  Math.PI / 2,
+  0,
+  0.57,
 );
 riflePart(
-  slots.primary,
-  new THREE.CylinderGeometry(0.052, 0.052, 0.36, 18),
+  rifleAxis,
+  new THREE.BoxGeometry(0.14, 0.04, 0.28),
   rifleGold,
   0,
   0.015,
-  -0.61,
-  Math.PI / 2,
+  0.79,
 );
 riflePart(
-  slots.primary,
-  new THREE.CylinderGeometry(0.055, 0.055, 0.035, 18),
-  rifleGoldLight,
+  rifleAxis,
+  new THREE.BoxGeometry(0.14, 0.09, 0.23),
+  rifleBlue,
   0,
-  0.015,
-  -0.81,
-  Math.PI / 2,
+  0.03,
+  0.43,
 );
-for (let z = -0.36; z <= -0.13; z += 0.055)
+riflePart(
+  rifleAxis,
+  new THREE.BoxGeometry(0.12, 0.14, 0.2),
+  rifleBlack,
+  0,
+  -0.15,
+  0.56,
+  0,
+  0,
+  0.12,
+);
+// Layered swept side fins, gold edge strips and red blade-like inlays.
+for (const side of [-1, 1]) {
+  for (let i = 0; i < 4; i++) {
+    const z = -0.22 + i * 0.22,
+      flare = 0.11 + (i % 2) * 0.035,
+      finShape = new THREE.Shape();
+    finShape.moveTo(-0.14, -0.055);
+    finShape.lineTo(0.13, -0.04);
+    finShape.lineTo(0.2, 0.015);
+    finShape.lineTo(0.02, 0.08);
+    finShape.lineTo(-0.19, 0.045);
+    finShape.closePath();
+    const fin = new THREE.Mesh(
+      new THREE.ExtrudeGeometry(finShape, {
+        depth: 0.035,
+        bevelEnabled: true,
+        bevelSegments: 2,
+        bevelSize: 0.012,
+        bevelThickness: 0.01,
+      }),
+      i % 2 ? rifleBlack : rifleGold,
+    );
+    fin.position.set(side * (0.1 + flare * 0.2), 0.045, z);
+    fin.scale.setScalar(0.27);
+    fin.rotation.z = side * (0.18 + i * 0.04);
+    fin.castShadow = true;
+    rifleAxis.add(fin);
+    riflePart(
+      rifleAxis,
+      new THREE.BoxGeometry(0.014, 0.022, 0.19),
+      rifleBlue,
+      side * 0.105,
+      0.095,
+      z,
+      0,
+      0,
+      side * 0.18,
+    );
+    riflePart(
+      rifleAxis,
+      new THREE.BoxGeometry(0.01, 0.014, 0.14),
+      rifleCrystal,
+      side * 0.119,
+      0.116,
+      z - 0.015,
+      0,
+      0,
+      side * 0.18,
+    );
+  }
   riflePart(
-    slots.primary,
-    new THREE.BoxGeometry(0.235, 0.018, 0.018),
+    rifleAxis,
+    new THREE.BoxGeometry(0.022, 0.06, 0.25),
     rifleGoldLight,
+    side * 0.095,
+    0.12,
+    0.16,
     0,
-    0.115,
-    z,
+    0,
+    side * 0.28,
   );
+}
+// Compact raised optic and angular cheek rest.
+riflePart(
+  rifleAxis,
+  new THREE.BoxGeometry(0.14, 0.025, 0.18),
+  rifleGold,
+  0,
+  0.18,
+  0.08,
+);
+riflePart(
+  rifleAxis,
+  new THREE.BoxGeometry(0.09, 0.075, 0.12),
+  rifleBlack,
+  0,
+  0.25,
+  0.08,
+);
+riflePart(
+  rifleAxis,
+  new THREE.BoxGeometry(0.07, 0.016, 0.075),
+  rifleCrystal,
+  0,
+  0.318,
+  0.08,
+);
 const primaryMagVisual = new THREE.Group();
-primaryMagVisual.position.set(0, -0.12, -0.08);
+primaryMagVisual.position.set(0, -0.13, 0.08);
 slots.primary.add(primaryMagVisual);
 riflePart(
   primaryMagVisual,
@@ -332,52 +400,43 @@ for (let y = -0.18; y < 0.03; y += 0.055)
     0.078,
   );
 const primaryCrystalGroup = new THREE.Group();
-primaryCrystalGroup.position.set(0, 0.02, -0.36);
-slots.primary.add(primaryCrystalGroup);
-for (let i = 0; i < 7; i++) {
-  const a = (i * Math.PI * 2) / 7,
-    shard = riflePart(
+primaryCrystalGroup.position.set(0, 0, 0);
+rifleAxis.add(primaryCrystalGroup);
+for (let i = 0; i < 4; i++) {
+  const z = -0.28 + i * 0.2;
+  for (const side of [-1, 1])
+    riflePart(
       primaryCrystalGroup,
-      new THREE.OctahedronGeometry(0.09 + (i % 3) * 0.018),
+      new THREE.ConeGeometry(0.016, 0.075, 4),
       rifleCrystal,
-      Math.cos(a) * 0.105,
-      Math.sin(a) * 0.095,
-      Math.sin(a * 2) * 0.035,
+      side * 0.105,
+      0.1,
+      z,
       0,
       0,
-      (i % 2) * 0.3,
+      side * 0.38,
     );
-  shard.scale.set(0.7, 1.8, 0.68);
 }
-const primaryEnergyLight = new THREE.PointLight(0x38caff, 1.7, 1.8, 2);
+const primaryEnergyLight = new THREE.PointLight(0xe51b37, 0.7, 0.8, 2);
 primaryEnergyLight.position.set(0, 0.04, -0.4);
-slots.primary.add(primaryEnergyLight);
-const secBody = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.11, 0.28), alloy);
-secBody.position.set(0, 0, 0);
-slots.secondary.add(secBody);
-const secGrip = new THREE.Mesh(
-  new THREE.BoxGeometry(0.09, 0.16, 0.14),
-  polymer,
-);
-secGrip.position.set(0.01, -0.03, -0.17);
-slots.secondary.add(secGrip);
+rifleAxis.add(primaryEnergyLight);
 const secondaryMagazineMesh = new THREE.Mesh(
-  new THREE.BoxGeometry(0.065, 0.1, 0.08),
+  new THREE.BoxGeometry(0.09, 0.12, 0.1),
   carbon,
 );
-secondaryMagazineMesh.position.set(0.01, -0.105, -0.17);
+secondaryMagazineMesh.position.set(0.005, -0.17, 0.035);
 slots.secondary.add(secondaryMagazineMesh);
-const secSlide = new THREE.Mesh(
-  new THREE.BoxGeometry(0.08, 0.04, 0.12),
-  carbon,
-);
-secSlide.position.set(0, 0.07, -0.03);
+const secSlide = new THREE.Group();
 slots.secondary.add(secSlide);
 const secSlideBaseZ = secSlide.position.z;
-// Custom cyan-blue and gold sidearm based on the supplied compact pistol.
-const pistolBlue = vmMat(0x087da5, 0.3, 0.48),
-  pistolGold = vmMat(0xd7ad3f, 0.28, 0.68),
-  pistolBlack = vmMat(0x202629, 0.52, 0.42),
+const secondaryMuzzle = new THREE.Object3D();
+secondaryMuzzle.position.set(0, 0.025, -0.44);
+secSlide.add(secondaryMuzzle);
+// Black-and-silver engraved pistol with a forward barrel, open trigger guard,
+// angled grip and cyan champion markings matching the supplied sidearm.
+const pistolBlue = vmMat(0x9aa4ad, 0.34, 0.68),
+  pistolGold = vmMat(0xd7dde0, 0.26, 0.74),
+  pistolBlack = vmMat(0x15191f, 0.43, 0.54),
   pistolGlow = new THREE.MeshStandardMaterial({
     color: 0x7eefff,
     emissive: 0x14b9ff,
@@ -385,89 +444,86 @@ const pistolBlue = vmMat(0x087da5, 0.3, 0.48),
     metalness: 0.28,
     roughness: 0.2,
   });
-secBody.material = pistolBlue;
-secGrip.material = pistolBlue;
 secondaryMagazineMesh.material = pistolBlack;
-secSlide.material = pistolBlack;
 riflePart(
-  slots.secondary,
-  new THREE.BoxGeometry(0.19, 0.13, 0.34),
+  secSlide,
+  new THREE.BoxGeometry(0.1, 0.1, 0.31),
   pistolBlue,
   0,
+  0.025,
   0.015,
-  -0.015,
 );
 riflePart(
-  slots.secondary,
-  new THREE.BoxGeometry(0.195, 0.035, 0.3),
+  secSlide,
+  new THREE.BoxGeometry(0.105, 0.026, 0.28),
   pistolBlack,
   0,
-  0.09,
-  -0.02,
+  0.105,
+  0.01,
 );
 riflePart(
-  slots.secondary,
-  new THREE.BoxGeometry(0.19, 0.018, 0.24),
+  secSlide,
+  new THREE.BoxGeometry(0.09, 0.009, 0.2),
   pistolGold,
   0,
-  0.113,
-  -0.03,
+  0.128,
+  0.005,
 );
 riflePart(
-  slots.secondary,
-  new THREE.BoxGeometry(0.11, 0.045, 0.14),
+  secSlide,
+  new THREE.CylinderGeometry(0.035, 0.035, 0.045, 20),
   pistolGlow,
   0,
-  0.13,
-  -0.1,
+  0.135,
+  -0.04,
 );
 riflePart(
-  slots.secondary,
-  new THREE.CylinderGeometry(0.026, 0.026, 0.22, 12),
+  secSlide,
+  new THREE.CylinderGeometry(0.019, 0.019, 0.32, 16),
   pistolBlack,
   0,
-  0.015,
-  -0.27,
+  0.025,
+  -0.245,
   Math.PI / 2,
 );
 riflePart(
-  slots.secondary,
-  new THREE.CylinderGeometry(0.04, 0.04, 0.045, 14),
+  secSlide,
+  new THREE.CylinderGeometry(0.028, 0.028, 0.035, 14),
   pistolGold,
   0,
-  0.015,
-  -0.38,
+  0.025,
+  -0.415,
   Math.PI / 2,
 );
 riflePart(
   slots.secondary,
-  new THREE.BoxGeometry(0.105, 0.18, 0.13),
-  pistolBlue,
-  0.012,
-  -0.09,
-  -0.16,
+  new THREE.BoxGeometry(0.085, 0.14, 0.11),
+  pistolBlack,
+  0,
+  -0.065,
+  0.09,
   0,
   0,
   -0.15,
 );
 riflePart(
   slots.secondary,
-  new THREE.BoxGeometry(0.11, 0.24, 0.07),
-  pistolBlue,
-  0.01,
-  -0.2,
-  -0.16,
+  new THREE.BoxGeometry(0.075, 0.22, 0.075),
+  pistolBlack,
+  0,
+  -0.235,
+  0.12,
   0,
   0,
   -0.18,
 );
 riflePart(
   slots.secondary,
-  new THREE.BoxGeometry(0.12, 0.018, 0.09),
-  pistolGold,
-  0.012,
-  -0.18,
-  -0.12,
+  new THREE.BoxGeometry(0.12, 0.024, 0.1),
+  pistolBlue,
+  0,
+  -0.16,
+  0.17,
   0,
   0,
   -0.18,
@@ -475,33 +531,57 @@ riflePart(
 for (let i = 0; i < 4; i++)
   riflePart(
     slots.secondary,
-    new THREE.BoxGeometry(0.09, 0.012, 0.045),
-    pistolGold,
-    0.012,
-    -0.11 - i * 0.045,
-    -0.117,
+    new THREE.BoxGeometry(0.105, 0.012, 0.05),
+    pistolBlue,
+    0,
+    -0.1 - i * 0.05,
+    0.17,
     0,
     0,
     -0.18,
   );
+for (let i = 0; i < 3; i++)
+  riflePart(
+    slots.secondary,
+    new THREE.BoxGeometry(0.014, 0.018, 0.05),
+    pistolGlow,
+    -0.078,
+    0.07,
+    -0.05 + i * 0.05,
+    0,
+    0,
+    -0.18,
+  );
+for (let i = 0; i < 5; i++)
+  riflePart(
+    slots.secondary,
+    new THREE.BoxGeometry(0.013, 0.012, 0.04),
+    pistolGlow,
+    -0.058,
+    -0.09 - i * 0.033,
+    0.165,
+    0,
+    0,
+    -0.55,
+  );
 riflePart(
   slots.secondary,
-  new THREE.TorusGeometry(0.064, 0.012, 8, 18),
+  new THREE.TorusGeometry(0.085, 0.012, 8, 20),
   pistolGold,
-  0.035,
-  -0.092,
-  -0.015,
+  0,
+  -0.075,
+  0.05,
   0,
   0,
   0,
 );
 riflePart(
   slots.secondary,
-  new THREE.BoxGeometry(0.025, 0.09, 0.02),
+  new THREE.BoxGeometry(0.016, 0.12, 0.018),
   pistolBlack,
-  0.035,
-  -0.05,
-  -0.005,
+  0,
+  -0.04,
+  0.05,
   0,
   0,
   -0.16,
@@ -510,9 +590,9 @@ riflePart(
   slots.secondary,
   new THREE.BoxGeometry(0.055, 0.016, 0.02),
   pistolGold,
-  -0.07,
-  0.105,
-  -0.01,
+  -0.075,
+  0.12,
+  0.05,
 );
 const characterArmSets = [];
 function buildGlovedHand(parent, side, mat) {
@@ -594,28 +674,35 @@ for (let style = 0; style < 5; style++) {
   characterArmSets.push(arms);
 }
 const weaponReady = { secondary: true, melee: true };
-// Curved karambit with a stonewashed steel hook, three blade holes, saw spine,
-// light wood scales, rivets and a finger ring matching the supplied knife reference.
-const knifeSteel = vmMat(0x68777c, 0.38, 0.76),
-  knifeEdge = vmMat(0xaeb8b6, 0.3, 0.8),
-  knifeDark = vmMat(0x31393b, 0.55, 0.5),
-  knifeWood = vmMat(0xb7a17a, 0.68, 0.12),
-  knifeRivet = vmMat(0xd0ba83, 0.3, 0.68);
+// Slim fantasy combat blade with a curved silver edge and violet/cyan armor.
+const knifeSteel = vmMat(0x252b3b, 0.34, 0.68),
+  knifeEdge = vmMat(0xbfcbd4, 0.27, 0.68),
+  knifeDark = vmMat(0x10131d, 0.42, 0.58),
+  knifeGrip = vmMat(0x242239, 0.6, 0.22),
+  knifeAccent = new THREE.MeshStandardMaterial({
+    color: 0xb979ff,
+    emissive: 0x4c1ed0,
+    emissiveIntensity: 1.1,
+    metalness: 0.4,
+    roughness: 0.24,
+  }),
+  knifeRivet = vmMat(0x2bbde7, 0.28, 0.52);
 const knifeBladeShape = new THREE.Shape();
-knifeBladeShape.moveTo(0.02, 0.055);
-knifeBladeShape.quadraticCurveTo(-0.06, 0.2, -0.2, 0.31);
-knifeBladeShape.quadraticCurveTo(-0.42, 0.5, -0.58, 0.61);
-knifeBladeShape.quadraticCurveTo(-0.62, 0.4, -0.46, 0.22);
-knifeBladeShape.quadraticCurveTo(-0.3, 0.07, -0.16, -0.055);
-knifeBladeShape.quadraticCurveTo(-0.05, -0.02, 0.02, 0.055);
+knifeBladeShape.moveTo(0.08, 0.015);
+knifeBladeShape.quadraticCurveTo(-0.18, 0.11, -0.46, 0.14);
+knifeBladeShape.lineTo(-0.72, 0.22);
+knifeBladeShape.quadraticCurveTo(-0.65, 0.08, -0.48, 0.015);
+knifeBladeShape.quadraticCurveTo(-0.27, -0.065, -0.08, -0.105);
+knifeBladeShape.lineTo(0.1, -0.085);
+knifeBladeShape.closePath();
 const knifeBlade = new THREE.Mesh(
   new THREE.ExtrudeGeometry(knifeBladeShape, {
-    depth: 0.035,
+    depth: 0.045,
     bevelEnabled: true,
-    bevelSegments: 2,
+    bevelSegments: 3,
     steps: 1,
-    bevelSize: 0.012,
-    bevelThickness: 0.01,
+    bevelSize: 0.018,
+    bevelThickness: 0.012,
   }),
   knifeSteel,
 );
@@ -624,76 +711,65 @@ knifeBlade.castShadow = true;
 knifeBlade.receiveShadow = true;
 slots.melee.add(knifeBlade);
 const knifeSpineCurve = new THREE.CatmullRomCurve3([
-  new THREE.Vector3(0.01, 0.08, 0.036),
-  new THREE.Vector3(-0.16, 0.28, 0.036),
-  new THREE.Vector3(-0.37, 0.46, 0.036),
-  new THREE.Vector3(-0.58, 0.61, 0.036),
+  new THREE.Vector3(0.02, 0.04, 0.052),
+  new THREE.Vector3(-0.22, 0.045, 0.052),
+  new THREE.Vector3(-0.48, 0.105, 0.052),
+  new THREE.Vector3(-0.7, 0.205, 0.052),
 ]);
 const knifeSpine = new THREE.Mesh(
-  new THREE.TubeGeometry(knifeSpineCurve, 18, 0.016, 6, false),
+  new THREE.TubeGeometry(knifeSpineCurve, 24, 0.014, 6, false),
   knifeEdge,
 );
 slots.melee.add(knifeSpine);
-for (let i = 0; i < 3; i++) {
-  const hole = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.022, 0.022, 0.012, 16),
-    knifeDark,
-  );
-  hole.rotation.x = Math.PI / 2;
-  hole.position.set(-0.17 - i * 0.065, 0.27 + i * 0.055, 0.045);
-  slots.melee.add(hole);
-}
-for (let i = 0; i < 5; i++) {
-  const toothShape = new THREE.Shape();
-  const x = -0.16 - i * 0.055,
-    y = 0.31 + i * 0.047;
-  toothShape.moveTo(x, y);
-  toothShape.lineTo(x - 0.042, y + 0.052);
-  toothShape.lineTo(x - 0.012, y - 0.02);
-  toothShape.closePath();
-  const tooth = new THREE.Mesh(
-    new THREE.ExtrudeGeometry(toothShape, {
-      depth: 0.018,
-      bevelEnabled: false,
-    }),
-    knifeEdge,
-  );
-  tooth.position.z = 0.023;
-  slots.melee.add(tooth);
-}
+const knifeEnergyLine = new THREE.Mesh(
+  new THREE.TubeGeometry(
+    new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-0.58, 0.14, 0.057),
+      new THREE.Vector3(-0.4, 0.045, 0.057),
+      new THREE.Vector3(-0.18, -0.005, 0.057),
+      new THREE.Vector3(0.015, -0.015, 0.057),
+    ]),
+    18,
+    0.012,
+    6,
+    false,
+  ),
+  knifeAccent,
+);
+slots.melee.add(knifeEnergyLine);
+const knifeGuard = new THREE.Mesh(
+  new THREE.BoxGeometry(0.22, 0.055, 0.12),
+  knifeDark,
+);
+knifeGuard.position.set(0.075, -0.02, 0.015);
+knifeGuard.rotation.z = -0.12;
+slots.melee.add(knifeGuard);
 const knifeHandleShape = new THREE.Shape();
-knifeHandleShape.moveTo(0.025, 0.07);
-knifeHandleShape.quadraticCurveTo(0.15, 0.02, 0.22, -0.12);
-knifeHandleShape.lineTo(0.38, -0.34);
-knifeHandleShape.quadraticCurveTo(0.47, -0.46, 0.38, -0.56);
-knifeHandleShape.quadraticCurveTo(0.28, -0.66, 0.18, -0.57);
-knifeHandleShape.quadraticCurveTo(0.1, -0.49, 0.19, -0.39);
-knifeHandleShape.lineTo(0.06, -0.19);
-knifeHandleShape.quadraticCurveTo(-0.04, -0.03, 0.025, 0.07);
+knifeHandleShape.moveTo(0.03, -0.055);
+knifeHandleShape.lineTo(0.12, -0.075);
+knifeHandleShape.lineTo(0.34, -0.31);
+knifeHandleShape.lineTo(0.3, -0.37);
+knifeHandleShape.lineTo(0.22, -0.36);
+knifeHandleShape.lineTo(0.01, -0.13);
+knifeHandleShape.closePath();
 const knifeHandle = new THREE.Mesh(
   new THREE.ExtrudeGeometry(knifeHandleShape, {
-    depth: 0.085,
+    depth: 0.11,
     bevelEnabled: true,
     bevelSegments: 2,
     steps: 1,
-    bevelSize: 0.012,
-    bevelThickness: 0.012,
+    bevelSize: 0.018,
+    bevelThickness: 0.014,
   }),
-  knifeWood,
+  knifeGrip,
 );
 knifeHandle.position.z = -0.045;
 knifeHandle.castShadow = true;
 slots.melee.add(knifeHandle);
-const knifeRing = new THREE.Mesh(
-  new THREE.TorusGeometry(0.092, 0.022, 10, 22),
-  knifeDark,
-);
-knifeRing.position.set(0.34, -0.52, 0.01);
-slots.melee.add(knifeRing);
 for (const [x, y] of [
-  [0.095, -0.08],
-  [0.18, -0.22],
-  [0.29, -0.39],
+  [0.075, -0.13],
+  [0.19, -0.25],
+  [0.285, -0.34],
 ]) {
   const rivet = new THREE.Mesh(
     new THREE.CylinderGeometry(0.018, 0.018, 0.012, 12),
@@ -703,6 +779,19 @@ for (const [x, y] of [
   rivet.position.set(x, y, 0.051);
   slots.melee.add(rivet);
 }
+const meleeSpinHalo = new THREE.Mesh(
+  new THREE.TorusGeometry(0.34, 0.007, 8, 40),
+  new THREE.MeshBasicMaterial({
+    color: 0xb979ff,
+    transparent: true,
+    opacity: 0.62,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  }),
+);
+meleeSpinHalo.visible = false;
+meleeSpinHalo.userData.noHit = true;
+slots.melee.add(meleeSpinHalo);
 scene.add(new THREE.HemisphereLight(0xc9e4dc, 0x2a3532, 2.1));
 // Lighting and aircraft flyovers
 const sun = new THREE.DirectionalLight(0xffe0b8, 3);
@@ -801,17 +890,29 @@ const fighterWingman = fighter.clone(true);
 fighterWingman.visible = false;
 scene.add(fighterWingman);
 const aircraft = [fighter, fighterWingman];
+const { xWingFleet, underwaterFleet } = createSpecialFlyovers(mat, scene);
 let activeAircraft = [];
+let nextFlyoverAt = 0;
 function startFlyover() {
-  activeAircraft = [...aircraft];
-  fighter.position.set(-62, 20, -18);
-  fighter.userData.flightBaseY = 20;
-  fighter.rotation.set(0, -Math.PI / 2, 0);
-  fighter.visible = true;
-  fighterWingman.position.set(-78, 23, -24);
-  fighterWingman.userData.flightBaseY = 23;
-  fighterWingman.rotation.set(0, -Math.PI / 2, 0);
-  fighterWingman.visible = true;
+  for (const craft of [...aircraft, ...xWingFleet, ...underwaterFleet])
+    craft.visible = false;
+  activeAircraft =
+    stage === 3 ? xWingFleet : stage === 4 ? underwaterFleet : aircraft;
+  activeAircraft.forEach((craft, index) => {
+    const isSubmarine = stage === 4,
+      baseY = isSubmarine ? 14 : stage === 3 ? 20 + index * 2 : 20 + index * 3,
+      startX = -42 - index * 14,
+      laneZ = isSubmarine
+        ? -48
+        : stage === 3
+          ? -20 - index * 6
+          : -18 - index * 6;
+    craft.position.set(startX, baseY, laneZ);
+    craft.userData.flightBaseY = baseY;
+    craft.rotation.set(0, -Math.PI / 2, 0);
+    craft.visible = true;
+  });
+  nextFlyoverAt = performance.now() + 16000;
 }
 let treeSkillAction = null,
   treeVisualGroup = null,
@@ -825,8 +926,6 @@ const bloodEffects = [],
   debrisEffects = [],
   destroyedColliders = new Set(),
   hiddenStageMeshes = new Map();
-const mat = (color, roughness = 0.8, metalness = 0) =>
-  new THREE.MeshStandardMaterial({ color, roughness, metalness });
 const buildings = [],
   stageMapGroups = [],
   stageObstacleSets = [];
@@ -1165,9 +1264,9 @@ obstacles = stageObstacleSets[1];
 const mapAtmosphere = [
   null,
   { sky: 0x91a29b, fog: 0x93a49e, density: 0.0125 },
-  { sky: 0x5b9da9, fog: 0x8bb6b4, density: 0.009 },
-  { sky: 0x081522, fog: 0x182b3b, density: 0.006 },
-  { sky: 0x07343e, fog: 0x12606a, density: 0.016 },
+  { sky: 0x4a91a7, fog: 0x86b3bc, density: 0.007 },
+  { sky: 0x02040b, fog: 0x070c16, density: 0.0008 },
+  { sky: 0x063343, fog: 0x0d5361, density: 0.008 },
   { sky: 0x332d25, fog: 0x61543a, density: 0.013 },
 ];
 function selectStageMap() {
@@ -2662,7 +2761,10 @@ function shoot() {
     origin.clone().addScaledVector(direction, 45);
   tracer(origin.clone().addScaledVector(direction, 0.55), stop);
   const muzzle = new THREE.PointLight(0xffd49b, 8, 4);
-  muzzle.position.copy(origin).addScaledVector(direction, 0.7);
+  const muzzleAnchor = weaponIndex === 0 ? primaryMuzzle : secondaryMuzzle,
+    muzzlePosition = new THREE.Vector3();
+  muzzleAnchor.getWorldPosition(muzzlePosition);
+  muzzle.position.copy(muzzlePosition);
   scene.add(muzzle);
   setTimeout(() => scene.remove(muzzle), 45);
   if (targetHit) {
@@ -2681,11 +2783,12 @@ function shoot() {
 }
 function meleeAttack(heavy = false) {
   if (!gameStarted || dead || weaponIndex !== 2 || meleeTimer > 0) return;
-  meleeTimer = heavy ? 0.72 : 0.52;
+  meleeTimer = heavy ? 1.2 : 0.92;
   weaponAction = meleeTimer;
   viewmodel.userData.meleeSwing = heavy ? 1 : -1;
   viewmodel.userData.meleeProgress = 0;
   viewmodel.userData.meleeHeavy = heavy;
+  viewmodel.userData.meleeDuration = meleeTimer;
   const direction = camera.getWorldDirection(new THREE.Vector3()),
     origin = camera.position.clone(),
     ray = new THREE.Raycaster(origin, direction, 0, heavy ? 3.5 : 2.6),
@@ -2772,9 +2875,12 @@ function reload() {
   }, 1120);
 }
 const playButton = document.querySelector("#play");
-playButton.addEventListener("pointerdown", requestPointerLock);
-playButton.addEventListener("click", () => {
-  if (!gameStarted) requestPointerLock();
+playButton.addEventListener("click", (event) => {
+  event.preventDefault();
+  requestPointerLock();
+});
+renderer.domElement.addEventListener("click", () => {
+  if (gameStarted && !controls.isLocked) requestPointerLock();
 });
 document.addEventListener("keydown", (e) => {
   if (["KeyW", "KeyA", "KeyS", "KeyD", "Space"].includes(e.code))
@@ -2814,15 +2920,11 @@ document.addEventListener("keyup", (e) => {
 });
 document.addEventListener("mousedown", (e) => {
   if (!gameStarted) {
-    if (e.button === 0) {
-      dragLook = true;
-      lastPointerX = e.clientX;
-      lastPointerY = e.clientY;
-    }
+    lastPointerX = e.clientX;
+    lastPointerY = e.clientY;
     return;
   }
-  if (!controls.isLocked && e.button === 0) {
-    dragLook = true;
+  if (!controls.isLocked) {
     lastPointerX = e.clientX;
     lastPointerY = e.clientY;
   }
@@ -2844,10 +2946,7 @@ document.addEventListener("mousedown", (e) => {
   }
 });
 document.addEventListener("mouseup", (e) => {
-  if (e.button === 0) {
-    fireHeld = false;
-    dragLook = false;
-  }
+  if (e.button === 0) fireHeld = false;
   if (e.button === 2) {
     if (weaponIndex !== 2) {
       aim = false;
@@ -2965,9 +3064,15 @@ function animate(now) {
   updateTreeWorld(dt);
   updateBloodEffects(dt);
   updateDebrisEffects(dt);
+  if (
+    !activeAircraft.length &&
+    stageState === "active" &&
+    performance.now() >= nextFlyoverAt
+  )
+    startFlyover();
   if (activeAircraft.length)
     activeAircraft = activeAircraft.filter((jet, index) => {
-      jet.position.x += 31 * dt;
+      jet.position.x += 17 * dt;
       jet.position.y =
         jet.userData.flightBaseY + Math.sin(now * 0.002 + index) * 0.45;
       if (jet.position.x > 64) {
@@ -3018,29 +3123,80 @@ function animate(now) {
   const activeSwing = viewmodel.userData.meleeSwing || 0;
   if (weaponIndex === 2) {
     const heavy = viewmodel.userData.meleeHeavy,
-      progress = activeSwing !== 0 ? 1 - meleeTimer / (heavy ? 0.72 : 0.52) : 0;
-    const pulse =
-      activeSwing === 0
-        ? 0
-        : Math.sin(Math.max(0, Math.min(1, progress)) * Math.PI);
-    slots.melee.rotation.z = THREE.MathUtils.lerp(
-      slots.melee.rotation.z,
-      activeSwing === 0 ? 0 : (heavy ? 0 : -0.95) * pulse,
-      0.42,
-    );
+      duration = viewmodel.userData.meleeDuration || 1,
+      progress = activeSwing !== 0 ? 1 - meleeTimer / duration : 0,
+      baseX = 0.1,
+      baseY = -0.005,
+      baseZ = 0,
+      baseRotX = 0,
+      baseRotZ = -1.13,
+      forwardYaw = -0.4;
+    let targetX = baseX,
+      targetY = baseY,
+      targetZ = baseZ,
+      targetRotX = baseRotX,
+      targetRotY = 0,
+      targetRotZ = baseRotZ;
+    meleeSpinHalo.visible = activeSwing === 1 && progress < 0.58;
+    if (activeSwing === 1) {
+      const spin = Math.min(1, progress / 0.58),
+        thrust = THREE.MathUtils.smoothstep(progress, 0.58, 0.82);
+      targetRotY = forwardYaw + Math.PI * 2 * spin;
+      targetRotX = baseRotX - 0.9 * thrust;
+      targetRotZ =
+        baseRotZ + 0.18 * Math.sin(spin * Math.PI * 2) * (1 - thrust);
+      targetX = baseX + 0.12 * Math.sin(spin * Math.PI * 2) * (1 - thrust);
+      targetY = baseY + 0.1 * Math.sin(spin * Math.PI * 2) * (1 - thrust);
+      targetZ = -0.56 * thrust;
+      meleeSpinHalo.rotation.z = spin * Math.PI * 2;
+      meleeSpinHalo.rotation.x = 0.32 * Math.sin(spin * Math.PI * 2);
+    } else if (activeSwing === -1) {
+      targetRotY = forwardYaw;
+      const cycle = progress * 2,
+        secondSlash = cycle >= 1,
+        stroke = secondSlash ? cycle - 1 : cycle,
+        eased = stroke * stroke * (3 - 2 * stroke),
+        pulse = Math.sin(stroke * Math.PI),
+        slashStart = secondSlash ? -0.92 : 0.92,
+        slashEnd = -slashStart;
+      targetRotZ = baseRotZ + THREE.MathUtils.lerp(slashStart, slashEnd, eased);
+      targetRotX = baseRotX + 0.24 * pulse;
+      targetX = baseX + (secondSlash ? -0.12 : 0.12) * (1 - 2 * eased);
+      targetY = baseY + 0.06 * pulse;
+      targetZ = -0.16 * pulse;
+    } else {
+      targetRotZ = baseRotZ;
+      targetRotX = baseRotX;
+      targetRotY = forwardYaw;
+    }
     slots.melee.rotation.x = THREE.MathUtils.lerp(
       slots.melee.rotation.x,
-      activeSwing === 0 ? 0 : (heavy ? -0.95 : 0.25) * pulse,
+      targetRotX,
+      0.42,
+    );
+    slots.melee.rotation.y = THREE.MathUtils.lerp(
+      slots.melee.rotation.y,
+      targetRotY,
+      0.42,
+    );
+    slots.melee.rotation.z = THREE.MathUtils.lerp(
+      slots.melee.rotation.z,
+      targetRotZ,
       0.42,
     );
     slots.melee.position.x = THREE.MathUtils.lerp(
       slots.melee.position.x,
-      0.1 + (heavy ? 0 : -0.28) * pulse,
+      targetX,
+      0.4,
+    );
+    slots.melee.position.y = THREE.MathUtils.lerp(
+      slots.melee.position.y,
+      targetY,
       0.4,
     );
     slots.melee.position.z = THREE.MathUtils.lerp(
       slots.melee.position.z,
-      activeSwing === 0 ? 0 : (heavy ? -0.48 : -0.06) * pulse,
+      targetZ,
       0.4,
     );
   }

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "vite --host 127.0.0.1",
-    "format": "prettier --write src/main.js src/player/operatorModels.js src/maps/visualVariants.js"
+    "format": "prettier --write src/main.js src/player/operatorModels.js src/maps/visualVariants.js src/vehicles/specialFlyovers.js"
   },
   "dependencies": {
     "source-map-js": "^1.2.2",
